@@ -1,0 +1,13 @@
+; $Id: wizard.info,v 1.1.2.1 2007/06/08 11:11:08 ralph Exp $
+; (C)2007, Ralph Bolton, Pre-Emptive Limited
+; GNU Public License V2 licensed.
+; No warranty is expressed or implied. Use of this software is
+; entirely at the user's risk. Pre-Emptive or it's employees accept
+; no liability for any dmanage or loss caused by use of this software. 
+; For more information, please see http://www.pre-emptive.net/gpl2
+
+name = Drupal Wizard API
+description = Provides modules with an easy API to make flexible multi-step 'wizard' forms
+;dependencies = 
+package = Development
+version = "1.0"

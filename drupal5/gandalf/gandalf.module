@@ -1,0 +1,186 @@
+<?php
+
+// $Id: gandalf.module,v 1.2.2.1 2007/06/07 15:58:44 ralph Exp $
+
+// For the purposes of clarity, this file contains all the Drupal-like
+// parts of the demo. The included file contains all the wizard-specific
+// parts.
+require_once('gandalf_wizard.php');
+
+/**
+ * Display help and module information
+ * @param section which section of the site we're displaying help 
+ * @return help text for section
+ */
+function gandalf_help($section='') {
+
+  $output = '';
+
+  switch ($section) {
+    case "admin/help#gandalf":
+      $output = '<p>'.  t("text found in gandalf_help function"). '</p>';
+      break;
+  }
+
+  return $output;
+} // function gandalf_help
+
+/**
+ * Valid permissions for this module
+ * @return array An array of valid permissions for the onthisdate module
+ */
+function gandalf_perm() {
+  return array('may view example');
+} // function gandalf_perm()
+
+/**
+ * Return Menu information for module
+ * @return array A menu system data structure
+ */ 
+function gandalf_menu($may_cache) {
+
+  $items = array();
+
+  if($may_cache) {
+    $items[] = array(
+      'path' => 'gandalf',
+      'title' => t('An Example Wizard'),
+      'callback' => 'drupal_get_form',
+      'callback arguments' => 'gandalf_wizard',
+      'access' => user_access('may view example'),
+      'type' => MENU_NORMAL_ITEM,
+    );
+  }
+
+  return $items;
+}
+
+// This is the main form function. It only really sets up the
+// wizard (if it needs to) and then calls the wizard module to
+// do all the clever stuff.
+function gandalf_wizard($form_values=NULL) {
+
+  if($form_values == NULL) {
+    $wizard = gandalf_wizard_config();
+    module_invoke('wizard','config_create',$wizard);
+  }
+
+  return module_invoke('wizard', 'form', $form_values);
+}
+
+// This is the validate function for the wizard. Unless you
+// make special arrangments, Wizard.module will try to call
+// (form name)_validate for this. Since the form is called
+// "gandalf_wizard" (see the function above), this is the
+// function that will be called. It's always called with the
+// three arguments, form_id, form_values and step.
+function gandalf_wizard_validate($form_id, $form_values, $step) {
+  // We can validate each page separately. This works because Drupal
+  // only allows form values from the form last shown to the user.
+  // That means it's impossible for someone to hack the form and send
+  // stuff that's on a previous page to this one.
+  // This example only needs to validate the age (on page 3). Normally,
+  // you'd expect far more validation than that, hence the switch/case.
+  // wizard.module automatically sets $step as appropriate.
+  switch($step) {
+    case 1:
+      break;
+    case 2:
+      break;
+    case 3:
+      // Check the age is reasonable. People get pretty old, so we just
+      // make sure it's a positive integer.
+      if($form_values['age'] != '' && (!is_numeric($form_values['age']) || $form_values['age'] <= 0)) {
+        form_set_error('age', t('Your age must be numeric and greater than 0.'));
+      }
+      break;
+  }
+}
+// This is the submit function for the gandalf_wizard form. It's
+// called with the same arguments as the validate function above.
+function gandalf_wizard_submit($form_id, $form_values, $step) {
+  $userdata = wizard_data_retrieve();
+
+  if($form_values['wizard_button_pressed'] == 'finish') {
+    // Now run through the stuff we've been given, and construct suitable messages.
+    // Of course, you'd normally want to do something much more complex than this.
+    // All we do here is to construct nice text strings based on the input from the
+    // user.
+    $planet = $userdata['planet'];
+    $likeit = $userdata['likeit'] ? 'and you like it there' : 'but you don\'t like it';
+    $stuff = '';
+    if($planet == 'mars') {
+      $drinks = '';
+      if(isset($userdata['drinks'])) {
+        $useable = array();
+        $max=0;
+        foreach($userdata['drinks'] as $key => $value) {
+          if($value != '0') {
+            $useable[] = $value;
+            $max++;
+          }
+        }
+        $count = 1;
+        foreach(array_values($useable) as $value) {
+          $drinks .= $value;
+          $count++;
+          if($count < $max) {
+            $drinks .= ', ';
+          } elseif($count == $max) {
+            $drinks .= ' and ';
+          }
+        }
+      }
+      if($drinks != '') {
+        $stuff .= 'You like to drink ' . $drinks;
+      } else {
+        $stuff .= 'You don\'t like to drink';
+      }
+    } else {
+      $shopping = '';
+      if(isset($userdata['shopping'])) {
+        $useable = array();
+        $max=0;
+        foreach($userdata['shopping'] as $key => $value) {
+          if($value != '0') {
+            $useable[] = $value;
+            $max++;
+          }
+        }
+        $count = 1;
+        foreach(array_values($useable) as $value) {
+          $shopping .= $value;
+          $count++;
+          if($count < $max) {
+            $shopping .= ', ';
+          } elseif($count == $max) {
+            $shopping .= ' and ';
+          }
+        }
+      }
+      if($shopping != '') {
+        $stuff .= 'You like to shop for ' . $shopping;
+      } else {
+        $stuff .= 'You don\'t like to shop';
+      }
+    }
+    // Now get age...
+    $age = $userdata['age'];
+    if(!isset($age) || $age == '') {
+      $age = 0;
+    }
+    $units = $userdata['units'];
+    // Now write messages...
+    drupal_set_message(t('You live on !planet !likeit. !stuff. You are !age !units years old.',
+      array('!planet' => $planet, '!likeit' => $likeit, '!stuff' => $stuff, '!age' => $age, '!units' => $units)));
+
+    // Return a path to redirect, or false otherwise.
+    return 'node';
+  }
+    
+  return FALSE;
+}
+
+
+// The following line is for Vim users - please don't delete it.
+// vim: set filetype=php expandtab tabstop=2 shiftwidth=2:

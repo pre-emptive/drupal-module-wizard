@@ -1,0 +1,794 @@
+<?php
+
+// $Id: wizard.module,v 1.8.2.2.2.2 2007/06/21 14:04:43 ralph Exp $
+
+// (C)2007, Ralph Bolton, Pre-Emptive Limited
+// GNU Public License V2 licensed.
+// No warranty is expressed or implied. Use of this software is
+// entirely at the user's risk. Pre-Emptive or it's employees accept
+// no liability for any dmanage or loss caused by use of this software. 
+// For more information, please see http://www.pre-emptive.net/gpl2
+
+/**
+ * Display help and module information
+ * @param section which section of the site we're displaying help 
+ * @return help text for section
+ */
+function wizard_help($section='') {
+  
+  $output = '';
+  
+  switch ($section) {
+    case "admin/help#wizard":
+      $output = '<p>'.  t("text found in wizard function"). '</p>';
+      break;
+  }
+
+  return $output;
+} // function wizard_help
+
+/**
+ * Valid permissions for this module
+ * @return array An array of valid permissions for the onthisdate module
+ */
+function wizard_perm() {
+  return array('administer wizard module');
+} // function wizard_perm()
+
+function wizard_menu($may_cache) {
+
+  $items = array(); 
+
+  if($may_cache) {
+
+    $items[] = array(
+      'path' => 'admin/settings/wizard',
+      'title' => t('Drupal Wizard API'),
+      'description' => t('Administer the wizard library'),
+      'callback' => 'drupal_get_form',
+      'callback arguments' => 'wizard_admin_settings',
+      'access' => user_access('administer wizard module'),
+      'type' => MENU_NORMAL_ITEM,
+    );
+  }
+
+  return $items;
+}
+
+function wizard_admin_settings() {
+
+  // Now get the different entity types so that the user can enable or
+  // disable them...
+  $form['wizard_workaround_51_fapi_bug'] = array(
+    '#type' => 'checkbox',
+    '#title' => t('Workaround Drupal 5.1 FAPI Bug'),
+    '#required' => FALSE,
+    '#default_value' => variable_get('wizard_workaround_51_fapi_bug', 1),
+    '#description' => t('The wizard can workaround a Drupal 5.1 bug to do with checkboxes. See !url.',
+      array('!url' => l(t('the bug report'), 'http://drupal.org/node/144482'))),
+  );
+
+  return system_settings_form($form);
+}
+
+/**
+ * Produce Wizard configuration defaults
+ * @param none
+ * @return A Wizard configuration data structure
+ */
+function _wizard_config_defaults() {
+  $wizard = array(
+    '#steps' => array(),
+
+    '#validate' => NULL,
+    '#submit' => NULL,
+    '#finishpage' => 'node',
+
+    '#update_button' => array(
+      '#title' => t('Update'),
+      '#weight' => 20,
+      '#disabled' => FALSE,
+      '#visible' => FALSE,
+      '#automatic' => TRUE,
+    ),
+    '#back_button' => array(
+      '#title' => t('Back'),
+      '#weight' => 21,
+      '#disabled' => FALSE,
+      '#visible' => TRUE,
+      '#automatic' => TRUE,
+    ),
+    '#next_button' => array(
+      '#title' => t('Next'),
+      '#weight' => 22,
+      '#disabled' => FALSE,
+      '#visible' => TRUE,
+      '#automatic' => TRUE,
+    ),
+    '#finish_button' => array(
+      '#title' => t('Finish'),
+      '#weight' => 23,
+      '#disabled' => TRUE,
+      '#visible' => TRUE,
+      '#automatic' => TRUE,
+    ),
+    '#cancel_button' => array(
+      '#title' => t('Cancel'),
+      '#weight' => 24,
+      '#disabled' => FALSE,
+      '#visible' => TRUE,
+      '#automatic' => TRUE,
+    ),
+
+    '#data_storage' => 'session',
+
+    '#progress_bar' => 'none',
+
+    '#wizard_cancelled_message' => t('Wizard has been cancelled.'),
+
+    '#destroy_on_cancel' => TRUE,
+    '#destroy_on_finish' => TRUE,
+  );
+
+  return $wizard;
+}
+
+/**
+ * Check if wizard configuration has been saved in session storage
+ * @param none
+ * @return TRUE or FALSE, depending if Wizard configuration is available
+ */
+function wizard_config_created() {
+  if(isset($_SESSION['wizard_config'])) {
+    return TRUE;
+  }
+  return FALSE;
+}
+
+/**
+ * Create a Wizard configuration data structure in session storage
+ * @param a Wizard configuration data structure
+ * @return TRUE if data saved successfully, FALSE if not.
+ */
+function wizard_config_create($wizard) {
+  // Clean out anything that came previously:
+  wizard_destroy();
+  $defaults = _wizard_config_defaults();
+  wizard_config_store($defaults);
+  return wizard_config_update($wizard);
+}
+
+/**
+ * Update Wizard configuration data structures in session storage
+ * @param a (partial) Wizard configuration data structure
+ * @return TRUE if update successful, FALSE if not
+ */
+function wizard_config_update($newwizard) {
+  $wizard = wizard_config_retrieve();
+  if(!isset($wizard)) {
+    return FALSE;
+  }
+  foreach(array_keys($newwizard) as $key) {
+    if(is_array($newwizard[$key])) {
+      // Special handling - update stuff inside the array
+      foreach(array_keys($newwizard[$key]) as $item) {
+        $wizard[$key][$item] = $newwizard[$key][$item];
+      }
+    } else {
+      // Update whatever this is...
+      $wizard[$key] = $newwizard[$key];
+    }
+  }
+
+  return wizard_config_store($wizard);
+}
+
+/**
+ * Destroy Wizard configuration information in session storage
+ * @param none
+ * @return TRUE if wizard configuration successfully removed, FALSE if not
+ */
+function wizard_destroy() {
+  unset($_SESSION['wizard_config']);
+  unset($_SESSION['wizard_data']);
+  return TRUE;
+}
+
+/**
+ * Load Wizard configuration data from session storage
+ * @param none
+ * @return A Wizard configuration data structure
+ */
+function wizard_config_retrieve() {
+  if(isset($_SESSION['wizard_config'])) {
+    return $_SESSION['wizard_config'];
+  }
+  return NULL;
+}
+
+/**
+ * Save Wizard configuration data to session storage
+ * @param A wizard configuration data structure
+ * @return TRUE if saved successfully, FALSE if not.
+ */
+function wizard_config_store($wizard) {
+  $_SESSION['wizard_config'] = $wizard;
+  return TRUE;
+}
+
+// This function should have an optional final parameter. Sadly, PHP4 does not
+// allow a default value for references, and breaks with a compiler error.
+// As a result, we have to have a mandatory third parameter, which can be NULL.
+function wizard_config_button_state($button = NULL, $state = NULL, &$wizard) {
+  if(!isset($button) || !isset($state)) {
+    return FALSE;
+  }
+  if(!in_array($button, array('update','back','next','finish','cancel'))) {
+    return FALSE;
+  }
+
+  $save_wizard = FALSE;
+  if(!isset($wizard)) {
+    $wizard = wizard_config_retrieve();
+    $save_wizard = TRUE;
+  }
+  switch($state) {
+    case 'enabled':
+      $wizard['#' . $button . '_button']['#disabled'] = FALSE;
+      break;
+    case 'disabled':
+      $wizard['#' . $button . '_button']['#disabled'] = TRUE;
+      break;
+    case 'visible':
+      $wizard['#' . $button . '_button']['#visible'] = TRUE;
+      break;
+    case 'invisible':
+      $wizard['#' . $button . '_button']['#visible'] = FALSE;
+      break;
+  }
+  if($save_wizard) {
+    wizard_config_store($wizard);
+  }
+
+  return TRUE;
+}
+
+      
+
+function wizard_data_store($data, $overwrite = NULL) {
+  if(is_array($_SESSION['wizard_data']) && is_null($overwrite)) {
+    $_SESSION['wizard_data'] = array_merge($_SESSION['wizard_data'], $data);
+  } else {
+    $_SESSION['wizard_data'] = $data;
+  }
+  return TRUE;
+}
+
+function wizard_data_retrieve() {
+  if(isset($_SESSION['wizard_data'])) {
+    return $_SESSION['wizard_data'];
+  }
+  return NULL;
+}
+
+function _wizard_recursive_form_defaults(&$defaults, $form, $depth = array()) {
+  if(is_array($form)) {
+    // Recurse into each child element (ie. anything that's not '#something')
+    foreach(element_children($form) as $key) {
+      $new = $depth;
+      $new[] = $key;
+      $form[$key] = _wizard_recursive_form_defaults($defaults[$key],$form[$key], $new);
+    }
+    // Now see if we have any properties (ie. '#something'). If we do, then
+    // set a default.
+    if(element_properties($form)) {
+      // Attempt to set a default value for this form element. Don't do this
+      // if it's a file type element - it doesn't work, and we'll actually
+      // risk putting an entire file into the form as a default the browser
+      // will ignore.
+      if($form['#type'] != 'file') {
+        // Check if the special wizard default value is set. This can be used
+        // to override normal behaviour. If it's there, it's used in preference
+        // to anything else.
+        $default_value = NULL;
+        if(isset($form['#wizard_default_value'])) {
+          // Use this over anything else
+          $default_value = $form['#wizard_default_value'];
+          unset($form['#wizard_default_value']);
+        } else {
+          if(isset($defaults)) {
+            $default_value = $defaults;
+          }
+        }
+        // We can work around a problem in Drupal 5.1 by frigging attributes
+        // for checkbox form elements. See http://drupal.org/node/144482
+        // We can handle single checkbox elements quite easily, but checkboxes
+        // have to be majorly hacked out. Not nice :-(
+        if(variable_get('wizard_workaround_51_fapi_bug', 1) && substr($form['#type'], 0, 5) == 'check') {
+          if($form['#type'] == 'checkbox' && isset($default_value)) {
+            if($default_value) {
+              $form['#attributes'] = array('checked' => 'checked');
+            }
+            $form['#default_value'] = $default_value;
+          } elseif($form['#type'] == 'checkboxes') {
+            // First, expand out the checkboxes into individual checkbox
+            // elements. Do the same hackery as above on them, and then
+            // overwrite the checkboxes form item we're looking at with
+            // the new collection. We put a non-standard attribute on the
+            // surrounding fieldset so that a theme function can spot it.
+            $new = array(
+              '#type' => 'fieldset',
+              '#title' => $form['#title'],
+              '#description' => $form['#description'],
+              '#wizard_fapi_workaround' => TRUE,
+            );
+            foreach(array_keys($form['#options']) as $option) {
+              $new[$option] = array(
+                '#type' => 'checkbox',
+                '#title' => $form['#options'][$option],
+                '#return_value' => $option,
+              );
+              if(isset($default_value[$option]) && $default_value[$option]) {
+                $new[$option]['#attributes'] = array('checked' => 'checked');
+              }
+              $new[$option]['#default_value'] = $default_value[$option];
+            }
+            $form = $new;
+          }
+        } elseif(isset($default_value)) {
+          // For all non checkbox/checkboxes, make sure this happens. No FAPI
+          // hacking required for them though.
+          $form['#default_value'] = $default_value;
+        }
+      } // end of if is file
+    }
+  }
+  return $form;
+}
+
+function _wizard_step_is_suitable($step) {
+  // If the step is undefined, or if it's set to "skip" then
+  // we can't use it, so it's unsuitable.
+  if(!isset($step) || (isset($step['#skip']) && $step['#skip'])) {
+    return FALSE;
+  }
+
+  // If we have a #form, then we're okay
+  if(isset($step['#form']) && is_array($step['#form'])) {
+    return TRUE;
+  }
+
+  // Lastly, we could have a callback function.
+  if(isset($step['#callback']) && function_exists($step['#callback'])) {
+    return TRUE;
+  }
+
+  // If we got here, then the step is not suitable for use
+  return FALSE;
+}
+
+/**
+ * Return the appropriate form within the Wizard
+ * @param An array of form values
+ * @return a Drupal Forms API style form data structure
+ */
+function wizard_form($form_values=NULL) {
+  if(!wizard_config_created()) {
+    drupal_set_message(t('The Wizard configuration has not been created.'),'error');
+    return array();
+  }
+  $wizard = wizard_config_retrieve();
+
+  // Get a list of the wizard steps available. We use this to
+  // select which actual step data structure to use later on.
+  $step_keys = array_keys($wizard['#steps']);
+
+  // Get the "step" in the wizard we're on. If it's not yet set, then
+  // we must be on step one. We usually increment the step, but if
+  // the user last pressed the 'back' button, then we decrement it instead.
+  $stepping_direction = 0;
+  if (!isset($form_values)) {
+    $wizard_step = $step_keys[0];
+    $form_step = 1;
+    $stepping_direction = 1;
+  } else {
+    $form_step = $form_values['wizard_step'];
+    if(isset($form_values['wizard_op']) && $form_values['wizard_op'] == $wizard['#back_button']['#title']) {
+      // Back button pressed...
+      // Decrement the form step
+      if($form_step > 1) {
+        $form_step--;
+        $stepping_direction = -1;
+      } else {
+        // This is an error - we can't go back past the start!
+        drupal_set_message(t('Wizard Error: Cannot go back beyond first step'),'error');
+      }
+    } elseif(isset($form_values['wizard_op']) && $form_values['wizard_op'] == $wizard['#next_button']['#title']) {
+      // Increment the form step
+      if($form_step < count($step_keys)) {
+        $form_step++;
+        $stepping_direction = 1;
+      } else {
+        // Can't step beyond the last page in the form...
+        drupal_set_message(t('Wizard Error: Cannot go forward beyond last step'), 'error');
+      }
+    }
+    // Now get the right item out of the keys array. Since the array
+    // starts at zero, we have to decrement the form step by one.
+    // This has nothing to do with moving forwards/backwards or whatever.
+    $wizard_step = $step_keys[$form_step - 1];
+  }
+
+  // These are *very* important. 'multistep' tells Drupal to store
+  // extra information between form steps. 'tree' tells drupal to
+  // preserve the multi-dimensional form information we're using.
+  // 'tree' isn't completely necessary in this example, but for
+  // big/complex forms, it's pretty obligatory!
+  $form['#multistep'] = TRUE;
+  $form['#tree'] = TRUE;
+  $form['#validate'] = array('_wizard_validate_handler' => array());
+  $form['#submit'] = array('_wizard_submit_handler' => array());
+
+  // Assuming we've got a stepping direction, we can move forward or back
+  // trying to find a suitable step (as steps may be undefined or be marked
+  // as "skip"). If no stepping direction has been set, then there's already
+  // a form error, so we just return the best we can (which will either
+  // be the same form the user's just seen, or an error because it's undefined)
+  if($stepping_direction != 0) {
+    $wizard_step_error = 0;
+    $old_form_step = $form_step;
+    $old_wizard_step = $wizard_step;
+    while(_wizard_step_is_suitable($wizard['#steps'][$wizard_step]) == FALSE) {
+      // Either this step is defined as "skip", or it doesn't exist properly
+      $form_step = $form_step + $stepping_direction;
+      if(($form_step > count($step_keys)) || ($form_step < 0)) {
+        // We can't go any further, so error out
+        $wizard_step_error = 1;
+        break;
+      }
+      $wizard_step = $step_keys[$form_step - 1];
+    }
+
+    if($wizard_step_error) {
+      // We couldn't find another step that was defined and not set to skip
+      $direction = "beyond";
+      if($stepping_direction < 0) {
+        $direction = 'behind';
+      }
+      drupal_set_message(t('Wizard error: Could not find a usable step @direction step @step',
+        array('@direction' => $direction, '@step' => $old_wizard_step)), 'error');
+      return array();
+    }
+  }
+  // Update the wizard config if the step requires it
+  foreach(array('update','back','next','finish','cancel') as $button) {
+    $index = '#' . $button . '_button';
+    if(isset($wizard['#steps'][$wizard_step][$index]) && is_array($wizard['#steps'][$wizard_step][$index])) {
+      // Now update the wizard button in accordance with the step settings
+      foreach($wizard['#steps'][$wizard_step][$index] as $state) {
+        wizard_config_button_state($button, $state, $wizard);
+      }
+    }
+  }
+
+  // Now get the form from the step
+  $step_form = NULL;
+  if(isset($wizard['#steps'][$wizard_step]['#form']) && is_array($wizard['#steps'][$wizard_step]['#form'])) {
+    // Use the #form over any callback
+    $step_form = $wizard['#steps'][$wizard_step]['#form'];
+  } elseif(isset($wizard['#steps'][$wizard_step]['#callback']) &&
+    function_exists($wizard['#steps'][$wizard_step]['#callback']))
+  {
+    // See if we have any arguments, and use them if there are
+    $args = array();
+    if(isset($wizard['#steps'][$wizard_step]['#callback arguments']) &&
+       is_array($wizard['#steps'][$wizard_step]['#callback arguments']))
+    {
+      $args = $wizard['#steps'][$wizard_step]['#callback arguments'];
+    }
+
+    // Now run the function to collect the form data structure:
+    $step_form = call_user_func_array($wizard['#steps'][$wizard_step]['#callback'], $args);
+  }
+
+  if(!is_array($step_form)) {
+    // We didn't get a valid step at all - disaster!
+    drupal_set_message(t("Wizard form error: Couldn't find a valid step form to display"),'error');
+    return array();
+  }
+
+  // Now fill in the form's default values (if we have them)
+  if($wizard['#data_storage'] == 'repost') {
+    if(isset($form_values['wizard'])) {
+      $userdata = $form_values['wizard'];
+    } else {
+      $userdata = array();
+    }
+  } else {
+    $userdata = wizard_data_retrieve();
+    if(!isset($userdata)) {
+      $userdata = array();
+    }
+  }
+
+  // If we've moved to a different page, set the defaults for the form
+  // correctly. If we're on the same page, then FAPI does this for us
+  // with $form_values.
+  // This may only be required when not using repost - check this.
+  // This potential optimisation is NOT IMPLEMENTED
+  if($stepping_direction != 0) {
+    $step_form = _wizard_recursive_form_defaults($userdata, $step_form);
+  }
+
+  // Now insert this step's form.
+  $form['wizard'] = $step_form;
+
+  // If the data storage setting is to repost form data, then
+  // we have to insert hidden fields here. Any new form pages that
+  // ask for fields with the same name will overwrite these, so
+  // caveat programmer ;-)
+  if($wizard['#data_storage'] == 'repost' && !is_null($form_values)) {
+    foreach ($form_values['wizard'] as $key => $value) {
+      // Don't overwrite any form elements that are set above.
+      // This could happen if the user presses "back"; it basically
+      // makes elements disappear, which we don't want!
+      if(!isset($form['wizard'][$key])) {
+        $form['wizard'][$key] = array(
+          '#type' => 'hidden',
+          '#value' => $value,
+        );
+      }
+    }
+  }
+
+  // Put a hidden value in the form that says which step we're on.
+  // This gets posted back to us, and used (above) next time around.
+  $form['wizard_step'] = array(
+    '#type' => 'hidden',
+    '#value' => $form_step,
+  );
+
+  $step_title = $wizard['#steps'][$wizard_step]['#title'];
+
+  switch($wizard['#progress_bar']) {
+    case 'none':
+    default:
+      // Do nothing
+      break;
+    case 'text':
+      $form['progress_bar'] = array(
+        '#type' => 'markup',
+        '#value' => theme('wizard_progress_info',$step_title, $form_step, count($step_keys)),
+        '#weight' => -10,
+      );
+      break;
+    case 'graphical':
+      $percent = round((($form_step - 1)/ count($step_keys)) * 100);
+      $form['progress_bar'] = array(
+        '#type' => 'markup',
+        '#value' => theme('wizard_progress_bar', $percent, t('@title', array('@title' => $step_title))),
+        '#weight' => -10,
+      );
+      break;
+  }
+
+  // Decide what flow buttons are usable...?
+  $back_disabled = $wizard['#back_button']['#disabled'];
+  $next_disabled = $wizard['#next_button']['#disabled'];
+  $finish_disabled = $wizard['#finish_button']['#disabled'];
+  // Disable back button if there are no previous steps, and
+  // next if there are no further steps.
+  if($form_step == 1 && $wizard['#back_button']['#automatic']) {
+    $back_disabled = TRUE;
+  }
+  if($form_step == count($step_keys)) {
+    if($wizard['#next_button']['#automatic']) {
+      $next_disabled = TRUE;
+    }
+    if($wizard['#finish_button']['#automatic']) {
+      $finish_disabled = FALSE;
+    }
+  }
+
+  if($wizard['#update_button']['#visible']) {
+    $form['update'] = array(
+      '#type' => 'submit',
+      '#value' => $wizard['#update_button']['#title'],
+      '#disabled' => $wizard['#update_button']['#disabled'],
+      '#weight' => $wizard['#update_button']['#weight'],
+      '#name' => 'wizard_op',
+    );
+  }
+  if($wizard['#back_button']['#visible']) {
+    $form['back'] = array(
+      '#type' => 'submit',
+      '#value' => $wizard['#back_button']['#title'],
+      '#disabled' => $back_disabled,
+      '#weight' => $wizard['#back_button']['#weight'],
+      '#name' => 'wizard_op',
+    );
+  }
+  if($wizard['#next_button']['#visible']) {
+    $form['next'] = array(
+      '#type' => 'submit',
+      '#value' => $wizard['#next_button']['#title'],
+      '#disabled' => $next_disabled,
+      '#weight' => $wizard['#next_button']['#weight'],
+      '#name' => 'wizard_op',
+    );
+  }
+  if($wizard['#finish_button']['#visible']) {
+    $form['finish'] = array(
+      '#type' => 'submit',
+      '#value' => $wizard['#finish_button']['#title'],
+      '#disabled' => $finish_disabled,
+      '#weight' => $wizard['#finish_button']['#weight'],
+      '#name' => 'wizard_op',
+    );
+  }
+  if($wizard['#cancel_button']['#visible']) {
+    $form['cancel'] = array(
+      '#type' => 'submit',
+      '#value' => $wizard['#cancel_button']['#title'],
+      '#disabled' => $wizard['#cancel_button']['#disabled'],
+      '#weight' => $wizard['#cancel_button']['#weight'],
+      '#name' => 'wizard_op',
+    );
+  }
+
+  return $form;
+}
+
+function _wizard_validate_handler($form_id, $form_values) {
+
+  // We need the wizard config:
+  $wizard = wizard_config_retrieve();
+  // If the user presses 'cancel' or 'back', we should do no further
+  // validation. Also, if they press 'cancel' we should actually
+  // goto the finish page, because the 'submit' stage won't be called
+  // if the user hasn't filled in one of the mandatory fields. In fact,
+  // in that case, Drupal's built in form validation will have set
+  // errors that we don't need to show the user.
+  if($form_values['wizard_op'] == $wizard['#cancel_button']['#title']) {
+    // Clear errors from Drupal's built in validation...
+    drupal_get_messages('error');
+    if($wizard['#wizard_cancelled_message'] != '') {
+      // Tell the user we've cancelled
+      drupal_set_message($wizard['#wizard_cancelled_message']);
+    }
+    // Optionally destroy the wizard...
+    if($wizard['#destroy_on_cancel']) {
+      wizard_destroy();
+    }
+    // Now go to the 'finish page'
+    drupal_goto($wizard['#finishpage']);
+    return;
+  } else if($form_values['wizard_op'] == $wizard['#back_button']['#title']) {
+    // Just do nothing. This is a problem if there was a mandatory field
+    // on the page, because the user won't be able to go back until they
+    // enter something. There doesn't seem to be any sensible way around
+    // this, without core patches.
+    return NULL;
+  }
+
+  // We create a fake form value to ease the processing for the
+  // caller. It helps them figure out which button the user pressed.
+  if($form_values['wizard_op'] == $wizard['#next_button']['#title']) {
+    $form_values['wizard']['wizard_button_pressed'] = 'next';
+  } elseif($form_values['wizard_op'] == $wizard['#back_button']['#title']) {
+    $form_values['wizard']['wizard_button_pressed'] = 'back';
+  } elseif($form_values['wizard_op'] == $wizard['#finish_button']['#title']) {
+    $form_values['wizard']['wizard_button_pressed'] = 'finish';
+  } elseif($form_values['wizard_op'] == $wizard['#cancel_button']['#title']) {
+    $form_values['wizard']['wizard_button_pressed'] = 'cancel';
+  } else {
+    $form_values['wizard']['wizard_button_pressed'] = 'unknown';
+  }
+
+  // Now hand validation back to the calling code...
+  $function = $wizard['#validate'];
+  if(!isset($function)) {
+    $function = $form_id . '_validate';
+  }
+  $is_valid = TRUE;
+  if(function_exists($function)) {
+    // Now run it...
+    $is_valid = call_user_func_array($function, array($form_id, $form_values['wizard'],$form_values['wizard_step']));
+  }
+
+  // Actually, return codes are not required for validate handlers.
+  // Forms API looks for messages that have been set instead.
+  return $is_valid;
+}
+
+function _wizard_submit_handler($form_id, $form_values) {
+  // The the wizard config:
+  $wizard = wizard_config_retrieve();
+
+  // If the user presses 'back' or 'cancel' don't do any submission work...
+  if($form_values['wizard_op'] == $wizard['#back_button']['#title'] ||
+    $form_values['wizard_op'] == $wizard['#cancel_button']['#title'])
+  {
+    // Don't do any submission work here, it's not relevant
+    return FALSE;
+  }
+
+  $_SESSION['wizard_checkbox'] = $form_values['wizard_checkbox'];
+
+  // We create a fake form value to ease the processing for the
+  // caller. It helps them figure out which button the user pressed.
+  if($form_values['wizard_op'] == $wizard['#next_button']['#title']) {
+    $form_values['wizard']['wizard_button_pressed'] = 'next';
+  } elseif($form_values['wizard_op'] == $wizard['#back_button']['#title']) {
+    $form_values['wizard']['wizard_button_pressed'] = 'back';
+  } elseif($form_values['wizard_op'] == $wizard['#finish_button']['#title']) {
+    $form_values['wizard']['wizard_button_pressed'] = 'finish';
+  } elseif($form_values['wizard_op'] == $wizard['#cancel_button']['#title']) {
+    $form_values['wizard']['wizard_button_pressed'] = 'cancel';
+  } else {
+    $form_values['wizard']['wizard_button_pressed'] = 'unknown';
+  }
+
+  if($wizard['#data_storage'] == 'session') {
+    // Now save all form values to session storage if required
+    wizard_data_store($form_values['wizard']);
+  }
+
+  // Now hand submission back to the calling code...
+  $function = $wizard['#submit'];
+  if(!isset($function)) {
+    $function = $form_id . '_submit';
+  }
+  $is_complete = NULL;
+  if(function_exists($function)) {
+    // Now run it...
+    $is_complete = call_user_func_array($function, array($form_id, $form_values['wizard'], $form_values['wizard_step']));
+  }
+
+  if(!isset($is_complete) || !is_string($is_complete)) {
+    // The caller's submit function isn't redirecting, so we don't need to
+    // do a redirect. However, if the finish button has been pressed,
+    // then we have to say there was a problem, because otherwise what to
+    // do here is really uncertain.
+    if($form_values['wizard']['wizard_button_pressed'] == 'finish') {
+      // Finish button pressed, but we have not been told to redirect.
+      // This is essentially illegal.
+      drupal_set_message(t('Wizard Error: Finish button pressed but not handled by !func',
+        array('!func' => $function)), 'error');
+      // Destroy the wizard, if told to
+      if($wizard['#destroy_on_finish']) {
+        wizard_destroy();
+      }
+      // We shouldn't be doing this redirect, because the caller should be
+      // handling the finish event. Since they haven't, we'll do it for them
+      drupal_goto($wizard['#finishpage']);
+      return;
+    }
+  } else {
+    // To be here, we must have a redirect, so we can simply return it, after
+    // optionally destroying the wizard config/data
+    if($wizard['#destroy_on_finish']) {
+      wizard_destroy();
+    }
+  }
+
+  // Return the correct response
+  return $is_complete;
+}
+
+//
+// Theme Functions
+//
+
+function theme_wizard_progress_info($title, $step, $total) {
+  $text = t('@title (Step @page of @total)',
+    array('@title' => $title, '@page' => $step, '@total' => $total));
+  return "<div id=\"wizardprogressinfo\">$text</div>";
+}
+
+function theme_wizard_progress_bar($percent, $title) {
+  return theme_progress_bar($percent,$title);
+}
+
+// The following line is for Vim users - please don't delete it.
+// vim: set filetype=php expandtab tabstop=2 shiftwidth=2:

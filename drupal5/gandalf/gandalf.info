@@ -1,0 +1,6 @@
+; $Id: gandalf.info,v 1.1 2007/06/03 22:07:04 ralph Exp $
+name = Wizard API Module Demonstration
+description = A demo module that provides a simple 'Wizard' application
+dependencies = wizard
+package = Development
+version = "1.0"
