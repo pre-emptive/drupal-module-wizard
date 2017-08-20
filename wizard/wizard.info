@@ -1,0 +1,6 @@
+; $Id: wizard.info,v 1.1 2007/05/11 21:22:22 ralph Exp $
+name = Drupal Wizard API
+description = Provides modules with an easy API to make flexible multi-step 'wizard' forms
+;dependencies = 
+package = Development
+version = "1.0"

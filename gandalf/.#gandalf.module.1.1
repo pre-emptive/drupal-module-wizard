@@ -1,0 +1,99 @@
+<?php
+
+// $Id: gandalf.module,v 1.1 2007/06/03 22:07:04 ralph Exp $
+
+require_once('gandalf_wizard.php');
+
+/**
+ * Display help and module information
+ * @param section which section of the site we're displaying help 
+ * @return help text for section
+ */
+function gandalf_help($section='') {
+
+  $output = '';
+
+  switch ($section) {
+    case "admin/help#gandalf":
+      $output = '<p>'.  t("text found in gandalf_help function"). '</p>';
+      break;
+  }
+
+  return $output;
+} // function gandalf_help
+
+/**
+ * Valid permissions for this module
+ * @return array An array of valid permissions for the onthisdate module
+ */
+function gandalf_perm() {
+  return array('may view example');
+} // function gandalf_perm()
+
+function gandalf_menu($may_cache) {
+
+  $items = array();
+
+  if($may_cache) {
+    $items[] = array(
+      'path' => 'gandalf',
+      'title' => t('An Example Wizard'),
+      'callback' => 'drupal_get_form',
+      'callback arguments' => 'gandalf_wizard',
+      'access' => user_access('may view example'),
+      'type' => MENU_NORMAL_ITEM,
+    );
+  }
+
+  return $items;
+}
+
+function gandalf_wizard($form_values=NULL) {
+
+  if($form_values == NULL) {
+    $wizard = gandalf_wizard_config();
+    module_invoke('wizard','config_create',$wizard);
+  }
+
+  return wizard_form($form_values);
+}
+
+function gandalf_wizard_validate($form_id, $form_values, $step) {
+  // We can validate each page separately. This works because Drupal
+  // only allows form values from the form last shown to the user.
+  // That means it's impossible for someone to hack the form and send
+  // stuff that's on a previous page to this one.
+  // This example only needs to validate the age (on page 3). Normally,
+  // you'd expect far more validation than that, hence the switch/case.
+  // wizard.module automatically sets $step as appropriate.
+  switch($step) {
+    case 1:
+      break;
+    case 2:
+      break;
+    case 3:
+      // Check the age is reasonable. People get pretty old, so we just
+      // make sure it's a positive integer.
+      if(!is_numeric($form_values['age']) || $form_values['age'] <= 0) {
+        form_set_error('age', t('Your age must be numeric and greater than 0.'));
+        error_log("Illegal age");
+      }
+      break;
+  }
+
+  error_log("Validate ending on step $step with age = " . $form_values['age']);
+}
+
+function gandalf_wizard_submit($form_id, $form_values, $step) {
+  $userdata = wizard_data_retrieve();
+
+  if($form_values['wizard_button_pressed'] == 'finish') {
+    return 'node';
+  }
+    
+  return FALSE;
+}
+
+
+// The following line is for Vim users - please don't delete it.
+// vim: set filetype=php expandtab tabstop=2 shiftwidth=2:
