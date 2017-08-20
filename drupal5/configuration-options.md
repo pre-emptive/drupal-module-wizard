@@ -1,4 +1,4 @@
-#Wizard Configuration Options
+# Wizard Configuration Options
 
 The wizard.module has to be configured before it can be used. This is done by supplying an array data structure to the wizard module via the wizard_config_store() API call. The structure of the array is as follows:
 ```
@@ -76,7 +76,7 @@ Element | Description
 #destroy_on_cancel | Set to TRUE by default, causing the module to call wizard_destroy() when the user presses the cancel button. Set to FALSE to leave wizard config and data in module storage after cancelling the wizard.
 #destroy_on_finish | Same as #destroy_on_cancel, except takes effect when the user presses the finish button
 
-##Steps Configuration
+## Steps Configuration
 
 The steps configuration is a numbered array of wizard steps. Each step defines the title of the step and the Drupal form for it. The form can either be "hard coded" or created with a callback function. For example:
 ```

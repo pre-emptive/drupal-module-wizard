@@ -1,4 +1,4 @@
-#Installing wizard.module into Drupal 5
+# Installing wizard.module into Drupal 5
 
 To install the wizard module:
 

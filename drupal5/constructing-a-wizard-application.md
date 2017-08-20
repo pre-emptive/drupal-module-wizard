@@ -1,4 +1,4 @@
-#Constructing a Wizard Application
+# Constructing a Wizard Application
 
 Construction of a wizard application is incredibly easy with wizard.module. This document describes how it's done (with reference to the demonstration wizard, Gandalf).
 
